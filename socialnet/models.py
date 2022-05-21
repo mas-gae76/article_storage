@@ -32,17 +32,17 @@ class User(AbstractUser):
 
 
 class Article(models.Model):
-    id = models.IntegerField(primary_key=True, null=False)
-    slug = models.SlugField(max_length=50, verbose_name='Заголовок (транслитом)', db_index=True, null=False)
+    slug = models.SlugField(max_length=50, verbose_name='Заголовок (транслитом)', db_index=True, null=False, unique=True)
     header = models.CharField(max_length=50, verbose_name='Заголовок', null=False)
     author = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='Автор')
     summary = models.CharField(max_length=250, verbose_name='Краткое содержание', null=False)
     description = models.CharField(verbose_name='Содержание', max_length=750, null=False)
-    reviews = models.IntegerField(verbose_name='Просмотры')
-    rating = models.IntegerField(verbose_name='Рейтинг')
+    reviews = models.IntegerField(verbose_name='Просмотры', default=0)
+    rating = models.FloatField(verbose_name='Рейтинг', default=0)
+    date = models.DateTimeField(auto_now_add=True, verbose_name='Дата публикации')
 
     def __str__(self):
-        return self.header
+        return f'{self.header}'
 
 
 class Rating(models.Model):
@@ -53,15 +53,8 @@ class Rating(models.Model):
         NORMAL = 0, 'Нормально'
         EXCELLENT = 1, 'Отлично'
 
-    who = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='Кто оценил?')
-    article = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='article_fk', default=None)
+    article = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='article_fk')
     mark = models.IntegerField(verbose_name='Рейтинг', default=RatingChoices.NORMAL, choices=RatingChoices.choices)
-
-
-class Favourites(models.Model):
-    who = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='У кого?')
-    article = models.ForeignKey(Article, on_delete=models.CASCADE, default='')
-    is_favourite = models.BooleanField(default=False, verbose_name='В избранном?')
 
 
 
