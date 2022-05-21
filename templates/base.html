@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Главная{% endblock %}</title>
+</head>
+<body>
+    <a href="{% url 'index' %}">На главную</a>
+    <a href="{% url 'add' %}">Создать статью</a>
+    <a href="{% url 'favourites' %}">В избранном</a>
+    <a href="{% url 'preferences' %}">Настройки</a>
+    {% if request.user.is_authenticated %}
+        <a href="{% url 'logout' %}">Выйти</a>
+    {% endif %}
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>
