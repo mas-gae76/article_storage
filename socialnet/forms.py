@@ -103,9 +103,9 @@ class RateForm(forms.Form):
     """
 
     RATING_CHOICES = (
-        ('-1', 'Плохо'),
-        ('0', 'Нейтрально'),
-        ('1', 'Хорошо')
+        (-1, 'Плохо'),
+        (0, 'Нейтрально'),
+        (1, 'Хорошо')
     )
 
     rate = forms.ChoiceField(label='Оценить: ', required=False, choices=RATING_CHOICES, initial=RATING_CHOICES[1])
