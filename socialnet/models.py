@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
+from django.shortcuts import reverse
 from datetime import datetime, timedelta
 from uuid import uuid4
 import jwt
@@ -41,6 +42,9 @@ class Article(models.Model):
     rating = models.FloatField(verbose_name='Рейтинг', default=0)
     date = models.DateTimeField(auto_now_add=True, verbose_name='Дата публикации')
 
+    def get_absolute_url(self):
+        return reverse('detail', args=[self.slug])
+
     def __str__(self):
         return f'{self.header}'
 
@@ -55,6 +59,16 @@ class Rating(models.Model):
 
     article = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='article_fk')
     mark = models.IntegerField(verbose_name='Рейтинг', default=RatingChoices.NORMAL, choices=RatingChoices.choices)
+
+
+class Favourites(models.Model):
+    who = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='У кого?')
+    article = models.ForeignKey(Article, on_delete=models.CASCADE, default='')
+
+    class Meta:
+        unique_together = ('who', 'article', )
+
+    
 
 
 
