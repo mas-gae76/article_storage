@@ -3,11 +3,11 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth import login, authenticate
 from django.db.models import F, Q
 from django.http import HttpResponseRedirect
-from django.shortcuts import reverse
+from django.shortcuts import reverse, redirect
 from django.views.generic import CreateView, ListView
 from django.views.generic.edit import FormView, FormMixin
 from .forms import RegisterForm, LoginForm, ArticleForm, SettingForm, OrderAndFilterForm, FavouriteForm, RateForm
-from .models import Article, User
+from .models import Article, Favourites
 
 
 class RegisterView(CreateView):
@@ -46,7 +46,7 @@ class UserLoginView(LoginView):
         cd = form.cleaned_data
         user = authenticate(self.request, email=cd['username'], password=cd['password'])
         login(self.request, user)
-        return super(UserLoginView, self).form_valid(form)
+        return redirect('index')
 
 
 class UserLogoutView(LogoutView):
@@ -80,10 +80,10 @@ class ArticleView(ListView):
             filter_by = self.request.GET.get('filter_by_slug')
             order_by_date = self.request.GET.get('date_order')
             order_by_rating = self.request.GET.get('rating_order')
-            queryset = Article.objects.filter(Q(slug__icontains=filter_by)).order_by(order_by_date, order_by_rating)
+            queryset = Article.objects.filter(Q(slug__icontains=filter_by)).order_by(order_by_rating,order_by_date)
             return queryset
 
-    def get_paginate_by(self, queryset):
+    def get_paginate_by(self, queryset) -> int:
         """
         Получаем от cookies кол-во записей на одной странице,
         если ещё не установлены, то возвращаем значение по умолчанию - 10
@@ -101,6 +101,7 @@ class DetailArticle(FormMixin, ArticleView):
     form_class = FavouriteForm
     extra_context = {'rate_form': RateForm(),
                      'button_rate': 'Оценить'}
+    checked = False
 
     def get_queryset(self):
         """
@@ -108,31 +109,40 @@ class DetailArticle(FormMixin, ArticleView):
         :return: QuerySet
         """
         article = Article.objects.filter(slug=self.kwargs['slug'])
+        DetailArticle.queryset = article
         article.update(reviews=F("reviews") + 1)
         return article
 
     def get(self, request, *args, **kwargs):
         """
         Обработка фиксации понравившихся статей
-        Понравившиеся статьи ложим в cookies с сохранением их slug поля
+        Понравившиеся статьи ложим в cookies с сохранением их id
         Далее редиректим на главную страницу - 'index'
         :param request:
         :param args:
         :param kwargs:
         :return: HttpResponseRedirect
         """
-        if 'like' not in request.GET:
+        
+        if 'like' not in request.GET and not DetailArticle.checked:
             return super(DetailArticle, self).get(request, *args, **kwargs)
         else:
-            like = request.GET.get('like', 'off')
-            response = HttpResponseRedirect(reverse('index'), 'Ваша оценка успешно отправлена!')
+            like = request.GET.get('like', '')
             cookies = request.COOKIES.get('likes', '')
-            current_article_slug = self.get_queryset().values('slug')[0]['slug']
+            current_article = str(DetailArticle.queryset.values('id')[0]['id'])
+            response = HttpResponseRedirect(reverse('favourites'), 'Ваша оценка успешно отправлена!')
             if like == 'on':
-                response.set_cookie(key='likes', value=cookies + current_article_slug + ',', secure=True, samesite='strict')
-            elif like == 'off':
-                updated_cookies = cookies.replace(current_article_slug + ',', '')
+                response.set_cookie(key='likes', value=cookies + current_article + ',',
+                                    secure=True, samesite='strict')
+            elif DetailArticle.checked:
+                """
+                Если залогиненный юзер хочет убрать из избранного статью, то ищем в БД эту статью и удаляем её
+                """
+                DetailArticle.checked = False
+                updated_cookies = cookies.replace(current_article + ',', '')
                 response.set_cookie(key='likes', value=updated_cookies, secure=True, samesite='strict')
+                if self.request.user.is_authenticated:
+                    Favourites.objects.filter(who=self.request.user, article_id=current_article).delete()
             return response
 
     def get_initial(self):
@@ -142,27 +152,33 @@ class DetailArticle(FormMixin, ArticleView):
         :return: dict - данные формы
         """
         initial = super(DetailArticle, self).get_initial()
-        current_article_slug = self.get_queryset().values('slug')[0]['slug']
+        current_article = str(DetailArticle.queryset.values('id')[0]['id'])
         cookies = self.request.COOKIES.get('likes', '')
-        initial['like'] = True if current_article_slug in cookies else False
+        initial['like'] = True if current_article in cookies else False
+        DetailArticle.checked = initial['like']
         return initial
 
 
-class FavouriteView(LoginRequiredMixin, ArticleView):
+class FavouriteView(ArticleView):
     """
     Обработка получения понравившихся статей
     """
-    login_url = 'login'
 
     def get_queryset(self):
         """
-        Получаем понравившиеся статьи путём фильрации объектов модели по slug
-        извлечёнными из cookies
+        Получаем понравившиеся статьи путём фильрации объектов модели по id
+        извлечёнными из cookies, если юзер не авторизован
+        Если юзер залогинен, то добавляем из cookie товары в БД
         :return: QuerySet
         """
         favourites = self.request.COOKIES.get('likes', '').split(',')[:-1]
-        articles = Article.objects.filter(slug__in=favourites)
-        return articles
+        current_user = self.request.user
+        if current_user.is_authenticated:
+            is_user_favourites = Favourites.objects.filter(who=current_user, article_id__in=favourites).exists()
+            if len(favourites) != 0 and not is_user_favourites:
+                Favourites.objects.bulk_create(Favourites(who=current_user, article_id=id) for id in favourites)
+                return Article.objects.filter(favourites__who=current_user)
+        return Article.objects.filter(id__in=favourites)
 
 
 class CreateArticleView(LoginRequiredMixin, CreateView):
@@ -173,7 +189,9 @@ class CreateArticleView(LoginRequiredMixin, CreateView):
     form_class = ArticleForm
     template_name = 'add.html'
     login_url = 'login'
-    success_url = '/detail/{slug}'
+
+    def get_success_url(self):
+        return reverse('detail', kwargs={'slug': self.object.slug})
 
     def form_valid(self, form):
         """
@@ -181,8 +199,8 @@ class CreateArticleView(LoginRequiredMixin, CreateView):
         :param form:
         :return:
         """
-        data = form.cleaned_data
-        article = Article(author_id=self.request.user.id, **data)
+        article = form.save(commit=False)
+        article.author = self.request.user
         article.save()
         return super(CreateArticleView, self).form_valid(form)
 
